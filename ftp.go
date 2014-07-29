@@ -141,7 +141,7 @@ func (f *Client) parseResponse() (Response, error) {
 			return Response{}, err
 		}
 
-		code, err = strconv.Atoi(response[0:3])
+		code, err = strconv.Atoi(strings.Trim(response, " ")[0:3])
 		if err != nil {
 			return Response{}, err
 		}
