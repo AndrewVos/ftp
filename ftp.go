@@ -26,32 +26,35 @@ type Response struct {
 }
 
 func (r Response) Error() error {
-	return errors.New(fmt.Sprintf("%d %v", r.Code, r.Message))
+	return errors.New(r.Message)
 }
 
 type Reader struct {
-	reader io.ReadCloser
-	client *Client
+	Connection net.Conn
+	Client     *Client
 }
 
 func (r *Reader) Read(buf []byte) (int, error) {
-	n, err := r.reader.Read(buf)
+	n, err := r.Connection.Read(buf)
 	return n, err
 }
 
 func (r *Reader) Close() error {
-	err := r.reader.Close()
-	if err != nil {
-		return err
-	}
-	response, err := r.client.parseResponse()
-	if err != nil {
-		return err
-	}
+	connectionCloseError := r.Connection.Close()
+	response, parseResponseError := r.Client.parseResponse()
+
 	if response.Code != 226 {
 		return response.Error()
 	}
-	return err
+
+	if connectionCloseError != nil {
+		return connectionCloseError
+	}
+	if parseResponseError != nil {
+		return parseResponseError
+	}
+
+	return nil
 }
 
 type Entry struct {
@@ -82,7 +85,7 @@ func (f *Client) Close() error {
 }
 
 func (f *Client) List(path string) ([]Entry, error) {
-	reader, err := f.dataCmd(fmt.Sprintf("LIST %s", path), 150, []int{226})
+	reader, err := f.dataCmd(fmt.Sprintf("LIST %s", path), 150)
 	if err != nil {
 		return nil, err
 	}
@@ -115,18 +118,18 @@ func (f *Client) List(path string) ([]Entry, error) {
 	return entries, nil
 }
 
-func (f *Client) Retr(path string) (io.ReadCloser, error) {
+func (f *Client) Retr(path string) (*Reader, error) {
 	_, err := f.cmd("TYPE I", []int{200})
 	if err != nil {
 		return nil, err
 	}
-	reader, err := f.dataCmd(fmt.Sprintf("RETR %s", path), 150, []int{226})
+	connection, err := f.dataCmd(fmt.Sprintf("RETR %s", path), 150)
 	if err != nil {
 		return nil, err
 	}
 	return &Reader{
-		client: f,
-		reader: reader,
+		Client:     f,
+		Connection: connection,
 	}, nil
 }
 
@@ -170,7 +173,7 @@ func (f *Client) Login() error {
 	return err
 }
 
-func (f *Client) dataCmd(command string, initialResponseCode int, finalResponseCodes []int) (io.ReadCloser, error) {
+func (f *Client) dataCmd(command string, initialResponseCode int) (net.Conn, error) {
 	port, err := f.initiatePassiveMode()
 	if err != nil {
 		return nil, err
