@@ -18,6 +18,7 @@ type Client struct {
 	Username   string
 	Password   string
 	Connection net.Conn
+	reader     *bufio.Reader
 }
 
 type Response struct {
@@ -69,6 +70,7 @@ func (f *Client) Connect() error {
 		return err
 	}
 	f.Connection = connection
+	f.reader = bufio.NewReader(f.Connection)
 	response, err := f.parseResponse()
 	if err != nil {
 		return err
@@ -136,13 +138,13 @@ func (f *Client) Retr(path string) (*Reader, error) {
 func (f *Client) parseResponse() (Response, error) {
 	var code int
 	var responses []string
-	reader := bufio.NewReader(f.Connection)
+
 	for {
-		response, err := reader.ReadString('\n')
-		responses = append(responses, response)
+		response, err := f.reader.ReadString('\n')
 		if err != nil {
 			return Response{}, err
 		}
+		responses = append(responses, response)
 
 		code, err = strconv.Atoi(strings.Trim(response, " ")[0:3])
 		if err != nil {
@@ -156,7 +158,7 @@ func (f *Client) parseResponse() (Response, error) {
 			break
 		}
 	}
-	fullResponse := strings.Trim(strings.Join(responses, ""), "\n")
+	fullResponse := strings.Trim(strings.Join(responses, "\n"), "\n")
 	debugPrint(fullResponse)
 	return Response{
 		Code:    code,
@@ -185,6 +187,7 @@ func (f *Client) dataCmd(command string, initialResponseCode int) (net.Conn, err
 
 	_, err = f.cmd(command, []int{initialResponseCode})
 	if err != nil {
+		passiveConnection.Close()
 		return nil, err
 	}
 	return passiveConnection, nil
